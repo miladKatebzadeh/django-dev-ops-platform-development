@@ -149,7 +149,7 @@ function AnalyticsView({
             <button
               className="refresh-button"
               onClick={() => setShowConfig(!showConfig)}
-              style={{ border: showConfig ? '1px solid var(--orange)' : '1px solid #303642' }}
+            // style={{ border: showConfig ? '1px solid var(--orange)' : '1px solid #303642' }}
             >
               <Settings2 size={13} /> {showConfig ? 'Close Manager' : 'Manage Metrics'}
             </button>
@@ -157,17 +157,17 @@ function AnalyticsView({
         />
 
         {/* پنل انتخاب متریک‌ها (نمایش با دکمه Manage Metrics) */}
+        {/* 🌟 تگ‌های HTML بدون استایل‌های کثیف درون‌خطی */}
         {showConfig && (
-          <div style={{ padding: '18px', borderBottom: '1px solid #222730', background: '#0b0d12' }}>
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+          <div className="metrics-config-container">
+            <div className="search-input-wrap">
               <input
-                // style={{ flex: 1, background: '#12161f', border: '1px solid #2d3545', padding: '8px 12px', borderRadius: '4px', fontSize: '11px', color: '#fff' }}
                 placeholder="Search metrics catalog..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
               />
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '150px', overflowY: 'auto', padding: '4px' }}>
+            <div className="metrics-buttons-wrapper">
               {allAvailableFromDb
                 .filter(m => m.toLowerCase().includes(searchQuery.toLowerCase()))
                 .map(mName => {
@@ -175,16 +175,8 @@ function AnalyticsView({
                   return (
                     <button
                       key={mName}
+                      className={isSelected ? 'selected' : ''}
                       onClick={() => toggleMetricSelection(mName)}
-                      // style={{
-                      //   fontSize: '9px',
-                      //   padding: '5px 9px',
-                      //   borderRadius: '3px',
-                      //   border: isSelected ? '1px solid var(--orange)' : '1px solid #242832',
-                      //   background: isSelected ? '#ff7a3515' : '#101217',
-                      //   color: isSelected ? 'var(--orange)' : '#8b929e',
-                      //   fontFamily: 'monospace'
-                      // }}
                     >
                       {isSelected ? '✓ ' : '+ '} {mName}
                     </button>
@@ -193,6 +185,7 @@ function AnalyticsView({
             </div>
           </div>
         )}
+
 
         <div className="metric-log">
           {coreMetrics.map((item, i) => {
@@ -341,11 +334,12 @@ function KnowledgeView() {
             <p>Semantic memory layer for DevOps-Brain</p>
           </div>
         </div>
-        <div className="connection" style={{ borderColor: chromaStatus === 'connected' ? '#2a4733' : '#552a2a', background: chromaStatus === 'connected' ? '#ffffff' : '#201010' }}>
+        <div className="connection" style={{ borderColor: chromaStatus === 'connected' ? '#2a4733' : '#a4a2a2', background: chromaStatus === 'connected' ? '#ffffff' : '#ffffff' }}>
           <StatusDot tone={chromaStatus === 'connected' ? 'green' : 'red'} />
           <div>
             <strong>{chromaStatus === 'connected' ? 'Connected' : 'Disconnected'}</strong>
-            <span style={{ color: chromaStatus === 'connected' ? '#74827b' : '#827474' }}>localhost : 8001</span>
+
+            <span >localhost : 8001</span>
           </div>
           <Wifi size={19} style={{ color: chromaStatus === 'connected' ? '#6ebf88' : '#bf6e6e' }} />
         </div>
@@ -495,7 +489,37 @@ function LabView() {
       notify(error instanceof Error ? error.message : 'Register failed')
     }
   }
-  const sendMessage = () => { const clean = query.trim(); if (!clean) return; setMessages((current) => [...current, { role: 'user', text: clean, time: 'now' }, { role: 'assistant', text: `I analyzed the request across live telemetry and ${toolCount} loaded MCP tools. The stack is responding normally; I recommend reviewing the latest pipeline failure and the postgres runbook before taking action.`, time: 'just now' }]); setQuery('') }
+  const sendMessage = async () => {
+    const clean = query.trim()
+    if (!clean) return
+    const updatedMessages = [
+      ...messages, 
+      { role: 'user' as const, text: clean, time: new Date().toLocaleTimeString() }
+    ]
+    setMessages(updatedMessages)
+    setQuery('')
+    notify('DevOps-Brain is parsing cluster metadata infrastructure...')
+    try {
+      const res = await apiRequest<{ reply: string }>('/mcp/chat/', {
+        method: 'POST',
+        body: JSON.stringify({ message: clean })
+      })
+      setMessages([
+        ...updatedMessages,
+        { role: 'assistant', text: res.reply, time: new Date().toLocaleTimeString() }
+      ])
+    } catch (error) {
+      setMessages([
+        ...updatedMessages,
+        { 
+          role: 'assistant', 
+          text: '⚠️ Communication Layer Exception: Unable to reach local Ollama host. Verify that you applied the settings cluster environment endpoints correctly.', 
+          time: new Date().toLocaleTimeString() 
+        }
+      ])
+    }
+  }
+
   return <div className="lab-grid"><section className="panel tool-panel"><PanelHeader eyebrow="RUNTIME EXTENSION LAYER" title="Dynamic MCP Tool Creator" icon={Code2} action={<span className="compile-status"><CircleDot size={12} /> READY</span>} /><div className="field-grid"><label><span>Tool Name</span><input value={toolName} onChange={(e) => setToolName(e.target.value)} placeholder="restart_container" /></label><label><span>Tool Description</span><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this tool do?" /></label></div><label className="code-editor"><div className="editor-top"><span><Code2 size={13} /> tool_definition.py</span><span>PYTHON 3.12</span></div><textarea value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} /></label><button className="compile-button" onClick={register}><Zap size={16} /> Register &amp; Compile Tool <span><Play size={13} /></span></button><div className="section-label"><span>Active hot-pluggable tools</span><small>{toolCount} loaded</small></div><div className="tool-buttons">{tools.map((tool) => <div className="tool-row" key={tool.id}><button className="tool-button" onClick={() => notify(`${tool.name} executed successfully`)}><div className="tool-button-icon"><Terminal size={14} /></div><div><strong>{tool.name}</strong><span>{tool.description}</span></div><ArrowUpRight size={14} /></button><button className="row-action danger" aria-label={`Remove ${tool.name}`} title="Remove MCP tool" onClick={() => removeTool(tool)}><Trash2 size={14} /></button></div>)}</div></section><section className="panel console-panel"><PanelHeader eyebrow="NATURAL LANGUAGE OPS" title="AI Diagnostic Console" icon={MessageSquare} action={<span className="online"><StatusDot /> ONLINE</span>} /><div className="chat-toolbar"><div className="bot-avatar"><Sparkles size={20} /></div><div><strong>DevOps-Brain</strong><span>Context: telemetry + ChromaDB + MCP runtime</span></div><span className="secure-badge">SAFE MODE</span></div><div className="chat-messages" aria-live="polite">{messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${message.time}-${index}`}><div className="message-avatar">{message.role === 'assistant' ? <Sparkles size={13} /> : 'MK'}</div><div className="message-body"><div className="message-meta"><strong>{message.role === 'assistant' ? 'DevOps-Brain' : 'You'}</strong><span>{message.time}</span></div><p>{message.text}</p>{message.role === 'assistant' && index === messages.length - 1 && <div className="source-chips"><span>ChromaDB</span><span>Prometheus</span><span>MCP runtime</span></div>}</div></div>)}</div><div className="ask-bar"><Search size={16} /><input aria-label="Ask DevOps-Brain" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) sendMessage() }} placeholder="Ask about your infrastructure..." /><button onClick={sendMessage} aria-label="Send message"><ArrowUpRight size={16} /></button></div><div className="console-footer"><span><CheckCircle2 size={13} /> Responses are grounded in connected sources</span><span>Enter to send · Shift+Enter for newline</span></div></section>{toast && <div className="toast"><CheckCircle2 size={15} />{toast}</div>}</div>
 }
 export default function Page() {
@@ -505,7 +529,13 @@ export default function Page() {
   const [telemetryLoading, setTelemetryLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // 🌟 ذخیره و لود متریک‌های انتخاب شده از LocalStorage
+  // 🌟 ۱. استیت‌های جدید برای مدیریت پنل گرافیکی تنظیمات سیستم
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false);
+  const [ollamaHost, setOllamaHost] = useState('http://localhost:11434');
+  const [ollamaModel, setOllamaModel] = useState('qwen2.5-coder:7b');
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
+  // لود اولیه فیلتر متریک‌ها از LocalStorage
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('opshub_filtered_metrics');
@@ -514,7 +544,6 @@ export default function Page() {
     return [];
   });
 
-  // ذخیره در دیسک مرورگر هنگام تغییر فیلترها
   useEffect(() => {
     localStorage.setItem('opshub_filtered_metrics', JSON.stringify(selectedMetrics));
   }, [selectedMetrics]);
@@ -522,7 +551,6 @@ export default function Page() {
   const fetchTelemetry = async (showSyncIndicator = false) => {
     if (showSyncIndicator) setIsSyncing(true);
     try {
-      // 🌟 فرستادن لیست متریک‌های فیلتر شده به صورت کوئری استرینگ به جنگو
       const metricsParam = encodeURIComponent(JSON.stringify(selectedMetrics));
       const res = await apiRequest<TelemetryData>(`/infrastructure/telemetry/?filtered_metrics=${metricsParam}`);
       setTelemetryData(res);
@@ -541,7 +569,30 @@ export default function Page() {
     fetchTelemetry();
     const interval = setInterval(() => fetchTelemetry(false), 15000);
     return () => clearInterval(interval);
-  }, [selectedMetrics]); // 🌟 رفرش آنی به محض تغییر فیلترها
+  }, [selectedMetrics]);
+
+  // 🌟 ۲. متد ذخیره پویای کانفیگ‌ها در دیتابیس جنگو
+  const handleSaveClusterSettings = async () => {
+    setSettingsSaving(true);
+    try {
+      const baseUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000/api').replace(/\/\$/, '');
+      const response = await fetch(`${baseUrl}/mcp/settings/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ollama_host: ollamaHost, ollama_model: ollamaModel })
+      });
+      if (response.ok) {
+        setShowSettingsPanel(false);
+        alert('Cluster system configurations synchronized successfully! 🎉');
+      } else {
+        alert('Failed to save settings to Postgres.');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const ActiveIcon = tabs.find((tab) => tab.id === activeTab)?.icon ?? Activity;
 
@@ -549,27 +600,44 @@ export default function Page() {
     <main className="app-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
+
+      {/* هدر بالایی وبسایت */}
       <header className="topbar">
         <div className="brand">
-          {/* <div className="brand-mark"><span /><span /><span /></div> */}
+          <div className="brand-mark"><span /><span /><span /></div>
           <div><strong>OPS<span>HUB</span></strong><small>AI OBSERVABILITY PLATFORM</small></div>
         </div>
-        {/* <div className="top-actions"> */}
-        {/* <span className="system-status"><StatusDot tone={telemetryError ? 'red' : 'green'} /> {telemetryError ? 'SYSTEM DEGRADED' : 'ALL SYSTEMS NOMINAL'}</span> */}
-        {/* <button className="icon-button" aria-label="Settings"><Settings2 size={17} /></button> */}
-        {/* <div className="avatar">MK</div> */}
-        {/* </div> */}
+        <div className="top-actions">
+          <span className="system-status"><StatusDot tone={telemetryError ? 'red' : 'green'} /> {telemetryError ? 'SYSTEM DEGRADED' : 'ALL SYSTEMS NOMINAL'}</span>
+
+          {/* 🌟 دکمه چرخ‌دنده بالا صفحه اکنون زنده و اکتیو شد */}
+          {/* 🌟 اصلاح و زنده کردن دکمه چرخ‌دنده هدر بالا صفحه در page.tsx */}
+          {/* 🌟 دکمه چرخ‌دنده هدر در فایل app/page.tsx را به این صورت اصلاح کنید */}
+          <button
+            className="icon-button"
+            aria-label="Settings"
+            onClick={() => window.location.href = '/settings'} // هدایت مستقیم مرورگر به صفحه وب مجزا
+          >
+            <Settings2 size={17} />
+          </button>
+
+
+
+          <div className="avatar">MK</div>
+        </div>
       </header>
 
+
+      {/* سکشن هیرو و تب‌ها بدون تغییر رندر می‌شوند */}
       <section className="hero">
         <div>
           <div className="hero-kicker"><span /> AIOPS CONTROL PLANE <span className="line" /></div>
-          <h1>Infrastructure intelligence<br /><em>daskldna.</em></h1>
+          <h1>Infrastructure intelligence,<br /><em>beautifully orchestrated.</em></h1>
           <p>Observe every layer. Query any signal. Deploy intelligence into your runtime.</p>
         </div>
         <div className="hero-meta">
-          {/* <div><span>UPTIME</span><strong>99.98%</strong></div>
-          <div><span>REGION</span><strong>EU-WEST-1</strong></div> */}
+          <div><span>UPTIME</span><strong>99.98%</strong></div>
+          <div><span>REGION</span><strong>EU-WEST-1</strong></div>
           <div><span>LAST SYNC</span><strong>{isSyncing ? 'Syncing...' : 'Just now'}</strong></div>
         </div>
       </section>
@@ -594,30 +662,72 @@ export default function Page() {
           </div>
           <div className="view-actions">
             <span className="last-updated"><Activity size={13} /> Auto-refresh enabled</span>
-            <button
-              className="refresh-button"
-              onClick={() => fetchTelemetry(true)}
-              disabled={isSyncing}
-              style={{ opacity: isSyncing ? 0.6 : 1, cursor: isSyncing ? 'not-allowed' : 'pointer' }}
-            >
-              <Activity size={14} className={isSyncing ? 'animate-spin' : ''} />
-              {isSyncing ? 'Syncing...' : 'Sync now'}
+            <button className="refresh-button" onClick={() => fetchTelemetry(true)} disabled={isSyncing}>
+              <Activity size={14} className={isSyncing ? 'animate-spin' : ''} /> {isSyncing ? 'Syncing...' : 'Sync now'}
             </button>
           </div>
         </div>
-        {activeTab === 'analytics' ? (
-          <AnalyticsView
-            data={telemetryData}
-            error={telemetryError}
-            loading={telemetryLoading}
-            selectedMetrics={selectedMetrics}
-            setSelectedMetrics={setSelectedMetrics}
-          />
-        ) : activeTab === 'knowledge' ? (
+        {/* 🌟 جایگزین کردن بخش شرطی سه‌تایی تصویر شما با این ساختار تمیز و ۴ کاناله */}
+        {activeTab === 'analytics' && (
+          <AnalyticsView data={telemetryData} error={telemetryError} loading={telemetryLoading} selectedMetrics={selectedMetrics} setSelectedMetrics={setSelectedMetrics} />
+        )}
+
+        {activeTab === 'knowledge' && (
           <KnowledgeView />
-        ) : (
+        )}
+
+        {activeTab === 'lab' && (
           <LabView />
         )}
+
+        {/* 🚀 اضافه شدن کانال چهارم برای رندر تمام‌صفحه و پاستیلی تنظیمات کلاستر */}
+        {activeTab === 'settings' && (
+          <div className="settings-page-wrapper">
+            <div className="settings-page-header">
+              <Settings2 size={20} style={{ color: 'var(--blue)' }} />
+              <h1>Cluster System Environment</h1>
+            </div>
+
+            <div className="settings-form-group">
+              <div className="settings-input-card">
+                <span>OLLAMA EDGE NODE HOST</span>
+                <input
+                  value={ollamaHost}
+                  onChange={(e) => setOllamaHost(e.target.value)}
+                  placeholder="http://localhost:11434"
+                />
+              </div>
+
+              <div className="settings-input-card">
+                <span>TARGET LLM MODEL</span>
+                <input
+                  value={ollamaModel}
+                  onChange={(e) => setOllamaModel(e.target.value)}
+                  placeholder="qwen2.5-coder:7b"
+                />
+              </div>
+
+              <div className="settings-action-row">
+                <button
+                  onClick={handleSaveClusterSettings}
+                  disabled={settingsSaving}
+                  className="compile-button"
+                  style={{ flex: 1, margin: 0, height: '40px', background: 'var(--blue)', color: '#fff' }}
+                >
+                  {settingsSaving ? 'Syncing Environment...' : 'Apply & Verify Configs'}
+                </button>
+                <button
+                  onClick={() => setActiveTab('analytics')}
+                  className="refresh-button"
+                  style={{ height: '40px', padding: '0 20px' }}
+                >
+                  Back to Panel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </main>
   )
