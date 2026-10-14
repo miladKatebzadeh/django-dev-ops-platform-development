@@ -461,43 +461,75 @@ function KnowledgeView() {
   )
 }
 
-
 function LabView() {
   const [tools, setTools] = useState<DynamicTool[]>([])
-  useEffect(() => { apiRequest<DynamicTool[]>('/mcp/tools/').then(setTools).catch(() => undefined) }, [])
   const [toolName, setToolName] = useState('restart_container')
   const [description, setDescription] = useState('Safely restart a named Docker container')
   const [code, setCode] = useState(codeSample)
   const [query, setQuery] = useState('')
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string; time: string }[]>([{ role: 'assistant', text: 'Hello. I can inspect telemetry, search ChromaDB runbooks, and safely execute loaded MCP tools. What would you like to investigate?', time: 'now' }])
   const [toast, setToast] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  
+  // 🌟 ۱. انتقال صحیح استیت ویرایش ابزار به بالاترین لایه کامپوننت LabView
+  const [editingToolId, setEditingDocId] = useState<string | number | null>(null)
+
   const toolCount = useMemo(() => tools.length, [tools])
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2800) }
-  const removeTool = async (tool: DynamicTool) => { if (!window.confirm(`Remove ${tool.name} from the MCP runtime?`)) return; try { await apiRequest(`/mcp/tools/${tool.id}/?confirm=true`, { method: 'DELETE' }); setTools((current) => current.filter((item) => String(item.id) !== String(tool.id))); notify(`${tool.name} removed from runtime manager`) } catch (error) { notify(error instanceof Error ? error.message : 'Remove failed') } }
+  const fetchTools = () => { apiRequest<DynamicTool[]>('/mcp/tools/').then(setTools).catch(() => undefined) }
+  
+  useEffect(() => { fetchTools() }, [])
+
+  const removeTool = async (tool: DynamicTool) => { 
+    if (!window.confirm(`Remove ${tool.name} from the MCP runtime?`)) return; 
+    try { 
+      await apiRequest(`/mcp/tools/${tool.id}/?confirm=true`, { method: 'DELETE' }); 
+      setTools((current) => current.filter((item) => String(item.id) !== String(tool.id))); 
+      notify(`${tool.name} removed from runtime manager`) 
+    } catch (error) { 
+      notify(error instanceof Error ? error.message : 'Remove failed') 
+    } 
+  }
+
+  // 🌟 ۲. ادغام کامل و یگانه کردن متد register (حل خطای توابع هم‌نام)
   const register = async () => {
     const cleanName = toolName.trim().replace(/\s+/g, '_')
     if (!cleanName) return
     const payload = { name: cleanName, description: description || 'Dynamic MCP runtime tool', code }
+    
     try {
-      const existing = tools.find((tool) => tool.name === cleanName)
-      const saved = existing
-        ? await apiRequest<DynamicTool>(`/mcp/tools/${existing.id}/`, { method: 'PATCH', body: JSON.stringify(payload) })
-        : await apiRequest<DynamicTool>('/mcp/tools/', { method: 'POST', body: JSON.stringify(payload) })
-      setTools((current) => [saved, ...current.filter((tool) => String(tool.id) !== String(saved.id))])
-      notify(`${cleanName} ${existing ? 'updated' : 'compiled and loaded'} in runtime manager`)
+      if (editingToolId) {
+        // اگر آیدی ویرایش موجود بود، همان ابزار را PATCH کن
+        await apiRequest(`/mcp/tools/${editingToolId}/`, { method: 'PATCH', body: JSON.stringify(payload) })
+      } else {
+        // در غیر این صورت ابزار جدید بساز
+        await apiRequest('/mcp/tools/', { method: 'POST', body: JSON.stringify(payload) })
+      }
+      
+      fetchTools() // لود مجدد ابزارها در جدول دیتابیس
+      
+      // ریسیت کردن کامل فیلدهای فرم بعد از کامپایل موفق
+      setEditingDocId(null)
+      setToolName('restart_container')
+      setDescription('Safely restart a named Docker container')
+      setCode(codeSample)
+      
+      notify(`${cleanName} synchronized in runtime manager 🎉`)
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Register failed')
     }
   }
+
   const sendMessage = async () => {
     const clean = query.trim()
-    if (!clean) return
+    if (!clean || aiLoading) return
     const updatedMessages = [
-      ...messages, 
+      ...messages,
       { role: 'user' as const, text: clean, time: new Date().toLocaleTimeString() }
     ]
     setMessages(updatedMessages)
     setQuery('')
+    setAiLoading(true)
     notify('DevOps-Brain is parsing cluster metadata infrastructure...')
     try {
       const res = await apiRequest<{ reply: string }>('/mcp/chat/', {
@@ -511,17 +543,102 @@ function LabView() {
     } catch (error) {
       setMessages([
         ...updatedMessages,
-        { 
-          role: 'assistant', 
-          text: '⚠️ Communication Layer Exception: Unable to reach local Ollama host. Verify that you applied the settings cluster environment endpoints correctly.', 
-          time: new Date().toLocaleTimeString() 
+        {
+          role: 'assistant',
+          text: '⚠️ Communication Layer Exception: Unable to reach local Ollama host. Verify that you applied the settings cluster environment endpoints correctly.',
+          time: new Date().toLocaleTimeString()
         }
       ])
+    } finally {
+      setAiLoading(false)
     }
   }
 
-  return <div className="lab-grid"><section className="panel tool-panel"><PanelHeader eyebrow="RUNTIME EXTENSION LAYER" title="Dynamic MCP Tool Creator" icon={Code2} action={<span className="compile-status"><CircleDot size={12} /> READY</span>} /><div className="field-grid"><label><span>Tool Name</span><input value={toolName} onChange={(e) => setToolName(e.target.value)} placeholder="restart_container" /></label><label><span>Tool Description</span><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this tool do?" /></label></div><label className="code-editor"><div className="editor-top"><span><Code2 size={13} /> tool_definition.py</span><span>PYTHON 3.12</span></div><textarea value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} /></label><button className="compile-button" onClick={register}><Zap size={16} /> Register &amp; Compile Tool <span><Play size={13} /></span></button><div className="section-label"><span>Active hot-pluggable tools</span><small>{toolCount} loaded</small></div><div className="tool-buttons">{tools.map((tool) => <div className="tool-row" key={tool.id}><button className="tool-button" onClick={() => notify(`${tool.name} executed successfully`)}><div className="tool-button-icon"><Terminal size={14} /></div><div><strong>{tool.name}</strong><span>{tool.description}</span></div><ArrowUpRight size={14} /></button><button className="row-action danger" aria-label={`Remove ${tool.name}`} title="Remove MCP tool" onClick={() => removeTool(tool)}><Trash2 size={14} /></button></div>)}</div></section><section className="panel console-panel"><PanelHeader eyebrow="NATURAL LANGUAGE OPS" title="AI Diagnostic Console" icon={MessageSquare} action={<span className="online"><StatusDot /> ONLINE</span>} /><div className="chat-toolbar"><div className="bot-avatar"><Sparkles size={20} /></div><div><strong>DevOps-Brain</strong><span>Context: telemetry + ChromaDB + MCP runtime</span></div><span className="secure-badge">SAFE MODE</span></div><div className="chat-messages" aria-live="polite">{messages.map((message, index) => <div className={`chat-message ${message.role}`} key={`${message.time}-${index}`}><div className="message-avatar">{message.role === 'assistant' ? <Sparkles size={13} /> : 'MK'}</div><div className="message-body"><div className="message-meta"><strong>{message.role === 'assistant' ? 'DevOps-Brain' : 'You'}</strong><span>{message.time}</span></div><p>{message.text}</p>{message.role === 'assistant' && index === messages.length - 1 && <div className="source-chips"><span>ChromaDB</span><span>Prometheus</span><span>MCP runtime</span></div>}</div></div>)}</div><div className="ask-bar"><Search size={16} /><input aria-label="Ask DevOps-Brain" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) sendMessage() }} placeholder="Ask about your infrastructure..." /><button onClick={sendMessage} aria-label="Send message"><ArrowUpRight size={16} /></button></div><div className="console-footer"><span><CheckCircle2 size={13} /> Responses are grounded in connected sources</span><span>Enter to send · Shift+Enter for newline</span></div></section>{toast && <div className="toast"><CheckCircle2 size={15} />{toast}</div>}</div>
+  return (
+    <div className="lab-grid">
+      {/* 🌟 بخش چت کاملاً در بالای صفحه و تمام‌عرض */}
+      <section className="panel console-panel">
+        <PanelHeader eyebrow="NATURAL LANGUAGE OPS" title="AI Diagnostic Console" icon={MessageSquare} action={<span className="online"><StatusDot /> ONLINE</span>} />
+        <div className="chat-toolbar">
+          <div className="bot-avatar"><Sparkles size={20} /></div>
+          <div><strong>DevOps-Brain</strong><span>Context: telemetry + ChromaDB + MCP runtime</span></div>
+          <span className="secure-badge">SAFE MODE</span>
+        </div>
+
+        <div className="chat-messages" aria-live="polite">
+          {messages.map((message, index) => (
+            <div className={`chat-message ${message.role}`} key={`${message.time}-${index}`}>
+              <div className="message-avatar">{message.role === 'assistant' ? <Sparkles size={13} /> : 'MK'}</div>
+              <div className="message-body">
+                <div className="message-meta"><strong>{message.role === 'assistant' ? 'DevOps-Brain' : 'You'}</strong><span>{message.time}</span></div>
+                <p>{message.text}</p>
+                {message.role === 'assistant' && index === messages.length - 1 && (
+                  <div className="source-chips"><span>ChromaDB</span><span>Prometheus</span><span>MCP runtime</span></div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="ask-bar">
+          <Search size={16} />
+          <input aria-label="Ask DevOps-Brain" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) sendMessage() }} placeholder="Ask about your infrastructure..." />
+          <button onClick={sendMessage} aria-label="Send message"><ArrowUpRight size={16} /></button>
+        </div>
+        <div className="console-footer"><span><CheckCircle2 size={13} /> Responses are grounded in connected sources</span><span>Enter to send · Shift+Enter for newline</span></div>
+      </section>
+
+      {/* 🌟 بخش ابزارساز MCP کاملاً در زیر چت‌باکس */}
+      <section className="panel tool-panel">
+        <PanelHeader eyebrow="RUNTIME EXTENSION LAYER" title="Dynamic MCP Tool Creator" icon={Code2} action={<span className="compile-status"><CircleDot size={12} /> READY</span>} />
+        <div className="field-grid">
+          <label><span>Tool Name</span><input value={toolName} onChange={(e) => setToolName(e.target.value)} placeholder="restart_container" /></label>
+          <label><span>Tool Description</span><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What does this tool do?" /></label>
+        </div>
+        <label className="code-editor">
+          <div className="editor-top"><span><Code2 size={13} /> tool_definition.py</span><span>PYTHON 3.12</span></div>
+          <textarea value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} />
+        </label>
+        <button className="compile-button" onClick={register}><Zap size={16} /> Register &amp; Compile Tool <span><Play size={13} /></span></button>
+
+        <div className="section-label"><span>Active hot-pluggable tools</span><small>{toolCount} loaded</small></div>
+
+        <div className="tool-buttons">
+          {tools.map((tool) => (
+            <div className="tool-row" key={tool.id}>
+              <button className="tool-button" onClick={() => notify(`${tool.name} executed successfully`)}>
+                <div className="tool-button-icon"><Terminal size={14} /></div>
+                <div><strong>{tool.name}</strong><span>{tool.description}</span></div>
+                <ArrowUpRight size={14} />
+              </button>
+
+              {/* 🛠️ دکمه اصلاح‌شده ادیت با فراخوانی شناسه یگانه استیت */}
+              <button
+                className="row-action"
+                title="Edit MCP Tool"
+                onClick={() => {
+                  setEditingDocId(tool.id); 
+                  setToolName(tool.name);
+                  setDescription(tool.description);
+                  setCode(tool.code || `@mcp.tool()\ndef ${tool.name}():\n    pass`);
+                  notify(`Loaded ${tool.name} into workspace`);
+                }}
+              >
+                <Settings2 size={13} />
+              </button>
+
+              <button className="row-action danger" aria-label={`Remove ${tool.name}`} title="Remove MCP tool" onClick={() => removeTool(tool)}><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {toast && <div className="toast"><CheckCircle2 size={15} />{toast}</div>}
+    </div>
+  )
 }
+
+
 export default function Page() {
   const [activeTab, setActiveTab] = useState<TabId>('analytics');
   const [telemetryData, setTelemetryData] = useState<TelemetryData | null>(null);

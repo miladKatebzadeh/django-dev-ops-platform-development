@@ -754,21 +754,33 @@ font-weight: 500;
 background: #edf2f7;
 }
 .lab-grid {
-display: grid;
-grid-template-columns: 1.08fr .92fr;
-gap: 12px;
-position: relative
+    display: flex !important;
+    flex-direction: column !important; /* تبدیل چیدمان از افقی به عمودی */
+    gap: 20px !important;
+    width: 100% !important;
+    max-width: 1260px !important;
+    margin: 0 auto !important;
 }
 .tool-panel,
 .console-panel {
-min-height: 600px
+    order: 1 !important; /* اولویت اول نمایش */
+    width: 100% !important;
+    min-height: 520px !important; /* ارتفاع استاندارد پاستیلی برای مسیج‌ها */
+    display: flex !important;
+    flex-direction: column !important;
+}
+.tool-panel {
+    order: 2 !important; /* اولویت دوم نمایش در زیر چت */
+    width: 100% !important;
+    min-height: auto !important;
+    padding-bottom: 24px !important;
 }
 .field-grid {
-display: grid;
-grid-template-columns: 1fr 1.2fr;
-gap: 12px;
-padding: 18px 18px 12px
+    grid-template-columns: 1fr 1fr !important; /* فیلد نام و توضیحات کنار هم در یک خط */
+    gap: 16px !important;
+    padding: 20px 18px 14px !important;
 }
+
 .field-grid label {
 display: flex;
 flex-direction: column;
@@ -1393,7 +1405,8 @@ grid-template-columns: 1fr
 grid-template-columns: 1fr
 }
 .tool-buttons {
-grid-template-columns: 1fr
+    grid-template-columns: 1fr 1fr 1fr !important; /* نمایش ابزارهای ساخته‌شده در ۳ ستون شیک */
+    gap: 12px !important;
 }
 .chroma-hero {
 display: block
@@ -1413,7 +1426,8 @@ display: none
 min-height: 650px
 }
 .chat-messages {
-min-height: 330px
+    max-height: 400px !important; /* افزایش فضا برای حباب‌های چت */
+    flex-grow: 1 !important;
 }
 .console-footer {
 display: block;
