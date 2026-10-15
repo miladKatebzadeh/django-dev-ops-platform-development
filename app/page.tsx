@@ -408,7 +408,7 @@ function KnowledgeView() {
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <span style={{ fontSize: '9px', color: '#68707d', letterSpacing: '.1em' }}>DOCUMENT TITLE</span>
               <input
-                // style={{ width: '100%', background: '#0b0e12', border: '1px solid #303743', padding: '8px 11px', borderRadius: '5px', fontSize: '11px', color: '#fff', outline: 'none' }}
+                style={{ width: '100%', background: '#ffffff', border: '1px solid #c3c3c4', padding: '8px 11px', borderRadius: '5px', fontSize: '11px', outline: 'none' }}
                 placeholder="Document Title"
                 value={docTitle}
                 onChange={e => setDocTitle(e.target.value)}
@@ -418,7 +418,7 @@ function KnowledgeView() {
             <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <span style={{ fontSize: '9px', color: '#68707d', letterSpacing: '.1em' }}>CONTENT MANUAL</span>
               <textarea
-                // style={{ width: '100%', minHeight: '120px', resize: 'vertical', background: '#f2f4f6', border: '1px solid #303743', padding: '8px 11px', borderRadius: '5px', fontSize: '11px', color: '#b7d2e8', outline: 'none', fontFamily: 'monospace', lineHeight: '1.6' }}
+                style={{ width: '100%', minHeight: '120px', resize: 'vertical', background: '#ffffff', border: '1px solid #c3c3c4', padding: '8px 11px', borderRadius: '5px', fontSize: '11px', outline: 'none', fontFamily: 'monospace', lineHeight: '1.6' }}
                 placeholder="Write or paste your runbook manual markdown contents directly here..."
                 value={docContent}
                 onChange={e => setDocContent(e.target.value)}
@@ -427,7 +427,7 @@ function KnowledgeView() {
           </div>
 
           {!editingDocId && (
-            <label className="drop-zone" style={{ border: selectedFile ? '1px dashed var(--green)' : '1px dashed #3b4654', cursor: 'pointer', margin: '14px 18px' }}>
+            <label className="drop-zone" style={{ border: selectedFile ? '1px dashed var(--green)' : '1px dashed #c3c3c4', cursor: 'pointer', margin: '14px 18px' }}>
               <input type="file" accept=".txt,.md,.pdf" onChange={handleFileChange} />
               <Upload size={22} style={{ color: selectedFile ? 'var(--green)' : '#7795be' }} />
               <strong>{selectedFile ? selectedFile.name : 'Drop files to ingest'}</strong>
@@ -440,7 +440,7 @@ function KnowledgeView() {
               className="outline-button"
               onClick={handleIngestOrUpdate}
               disabled={uploading || (!selectedFile && !docTitle.trim() && !docContent.trim())}
-              style={{ flex: 1, margin: 0, opacity: uploading ? 0.5 : 1, cursor: uploading ? 'not-allowed' : 'pointer', background: editingDocId ? '#ff7a3515' : 'transparent', color: editingDocId ? 'var(--orange)' : '#c2cad4', borderColor: editingDocId ? 'var(--orange)' : '#39424f' }}
+              style={{ flex: 1, margin: 0, opacity: uploading ? 0.5 : 1, cursor: uploading ? 'not-allowed' : 'pointer', background: editingDocId ? '#ff7a3515' : 'transparent', color: editingDocId ? 'var(--orange)' : '#c2cad4', borderColor: editingDocId ? 'var(--orange)' : '#c3c3c4' }}
             >
               <Upload size={15} /> {uploading ? 'Processing Vectors...' : editingDocId ? 'Update Asset' : 'Add document'}
             </button>
@@ -470,25 +470,25 @@ function LabView() {
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; text: string; time: string }[]>([{ role: 'assistant', text: 'Hello. I can inspect telemetry, search ChromaDB runbooks, and safely execute loaded MCP tools. What would you like to investigate?', time: 'now' }])
   const [toast, setToast] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
-  
+
   // 🌟 ۱. انتقال صحیح استیت ویرایش ابزار به بالاترین لایه کامپوننت LabView
   const [editingToolId, setEditingDocId] = useState<string | number | null>(null)
 
   const toolCount = useMemo(() => tools.length, [tools])
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2800) }
   const fetchTools = () => { apiRequest<DynamicTool[]>('/mcp/tools/').then(setTools).catch(() => undefined) }
-  
+
   useEffect(() => { fetchTools() }, [])
 
-  const removeTool = async (tool: DynamicTool) => { 
-    if (!window.confirm(`Remove ${tool.name} from the MCP runtime?`)) return; 
-    try { 
-      await apiRequest(`/mcp/tools/${tool.id}/?confirm=true`, { method: 'DELETE' }); 
-      setTools((current) => current.filter((item) => String(item.id) !== String(tool.id))); 
-      notify(`${tool.name} removed from runtime manager`) 
-    } catch (error) { 
-      notify(error instanceof Error ? error.message : 'Remove failed') 
-    } 
+  const removeTool = async (tool: DynamicTool) => {
+    if (!window.confirm(`Remove ${tool.name} from the MCP runtime?`)) return;
+    try {
+      await apiRequest(`/mcp/tools/${tool.id}/?confirm=true`, { method: 'DELETE' });
+      setTools((current) => current.filter((item) => String(item.id) !== String(tool.id)));
+      notify(`${tool.name} removed from runtime manager`)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Remove failed')
+    }
   }
 
   // 🌟 ۲. ادغام کامل و یگانه کردن متد register (حل خطای توابع هم‌نام)
@@ -496,7 +496,7 @@ function LabView() {
     const cleanName = toolName.trim().replace(/\s+/g, '_')
     if (!cleanName) return
     const payload = { name: cleanName, description: description || 'Dynamic MCP runtime tool', code }
-    
+
     try {
       if (editingToolId) {
         // اگر آیدی ویرایش موجود بود، همان ابزار را PATCH کن
@@ -505,15 +505,15 @@ function LabView() {
         // در غیر این صورت ابزار جدید بساز
         await apiRequest('/mcp/tools/', { method: 'POST', body: JSON.stringify(payload) })
       }
-      
+
       fetchTools() // لود مجدد ابزارها در جدول دیتابیس
-      
+
       // ریسیت کردن کامل فیلدهای فرم بعد از کامپایل موفق
       setEditingDocId(null)
       setToolName('restart_container')
       setDescription('Safely restart a named Docker container')
       setCode(codeSample)
-      
+
       notify(`${cleanName} synchronized in runtime manager 🎉`)
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Register failed')
@@ -565,20 +565,60 @@ function LabView() {
           <span className="secure-badge">SAFE MODE</span>
         </div>
 
-        <div className="chat-messages" aria-live="polite">
-          {messages.map((message, index) => (
-            <div className={`chat-message ${message.role}`} key={`${message.time}-${index}`}>
-              <div className="message-avatar">{message.role === 'assistant' ? <Sparkles size={13} /> : 'MK'}</div>
-              <div className="message-body">
-                <div className="message-meta"><strong>{message.role === 'assistant' ? 'DevOps-Brain' : 'You'}</strong><span>{message.time}</span></div>
-                <p>{message.text}</p>
-                {message.role === 'assistant' && index === messages.length - 1 && (
-                  <div className="source-chips"><span>ChromaDB</span><span>Prometheus</span><span>MCP runtime</span></div>
-                )}
+        {/* 🌟 موتور پردازش و رندر شرطی کارت‌های گزارش خطا در page.tsx */}
+        {messages.map((message, index) => {
+          if (message.role === 'user') {
+            return (
+              <div className="chat-message user" key={index}>
+                <div className="message-body"><p>{message.text}</p></div>
               </div>
-            </div>
-          ))}
-        </div>
+            )
+          }
+
+          // لایه آنالیز پاسخ هوش مصنوعی (Assistant)
+          try {
+            const report = JSON.parse(message.text || message.reply || '{}')
+            return (
+              <div className="chat-message assistant" key={index} style={{ width: '100%', maxWidth: '100%' }}>
+                <div className="message-avatar"><Sparkles size={13} /></div>
+                <div className="message-body" style={{ flex: 1 }}>
+
+                  {/* 🚨 رندر زنده کارت قرمز پاستیلی به محض کشف کانتینر خراب یا حادثه سیستمی */}
+                  {report.incident_detected ? (
+                    <div className="report-box" style={{ margin: '0 0 12px', minHeight: 'auto', background: '#fef2f2', borderColor: '#fca5a5' }}>
+                      <div className="report-header" style={{ color: '#991b1b', borderBottom: '1px solid #fca5a5', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>⚠️ SYSTEM CRITICAL ALERT: {report.error_scope}</span>
+                      </div>
+                      <div className="report-content" style={{ color: '#7f1d1d', padding: '14px' }}>
+                        <p style={{ margin: 0, fontWeight: 'bold' }}>{report.diagnostic_report}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ✅ رندر کارت سبز لایت پاستیلی در صورتی که تمام کانتینرها وضعیت نرمال دارند */
+                    <div className="report-box" style={{ margin: '0 0 12px', minHeight: 'auto', background: '#f0fdf4', borderColor: '#bbf7d0' }}>
+                      <div className="report-header" style={{ color: '#166534', borderBottom: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>✅ INFRASTRUCTURE TELEMETRY STATUS NOMINAL</span>
+                      </div>
+                      <div className="report-content" style={{ color: '#14532d', padding: '14px' }}>
+                        <p style={{ margin: 0 }}>{report.diagnostic_report}</p>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            )
+          } catch {
+            // سیستم پشتیبان متنی ساده در صورت نبود ساختار JSON
+            return (
+              <div className="chat-message assistant" key={index}>
+                <div className="message-avatar"><Sparkles size={13} /></div>
+                <div className="message-body"><p>{message.text || message.reply}</p></div>
+              </div>
+            )
+          }
+        })}
+
 
         <div className="ask-bar">
           <Search size={16} />
@@ -617,7 +657,7 @@ function LabView() {
                 className="row-action"
                 title="Edit MCP Tool"
                 onClick={() => {
-                  setEditingDocId(tool.id); 
+                  setEditingDocId(tool.id);
                   setToolName(tool.name);
                   setDescription(tool.description);
                   setCode(tool.code || `@mcp.tool()\ndef ${tool.name}():\n    pass`);
@@ -797,7 +837,6 @@ export default function Page() {
           <LabView />
         )}
 
-        {/* 🚀 اضافه شدن کانال چهارم برای رندر تمام‌صفحه و پاستیلی تنظیمات کلاستر */}
         {activeTab === 'settings' && (
           <div className="settings-page-wrapper">
             <div className="settings-page-header">

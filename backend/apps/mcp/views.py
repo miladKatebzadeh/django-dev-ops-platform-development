@@ -1,4 +1,5 @@
-import uuid
+import os
+import logging
 import ollama
 from django.utils import timezone
 from django.db import connection
@@ -8,7 +9,17 @@ from rest_framework import viewsets, decorators, response, status
 from .models import MCPTool, MCPToolVersion
 from .serializers import MCPToolSerializer
 from apps.audit.models import AuditEvent
+from langfuse import Langfuse
 
+logger = logging.getLogger(__name__)
+
+# Configure credentials through environment variables; do not hard-code API keys.
+langfuse_client = Langfuse(
+    secret_key="sk-lf-46363ae9-619d-4818-af9f-05a79a75cb04",
+    public_key="pk-lf-389113e5-db03-4ec0-9d42-dad8e0710afa",
+    host="http://127.0.0.1:3030",
+    debug=True,
+)
 # Safe fallback import for ChromaDB Vector Database
 try:
     from apps.knowledge.views import chroma_collection
@@ -110,96 +121,215 @@ class MCPToolViewSet(viewsets.ModelViewSet):
 
 
 @csrf_exempt
-@decorators.api_view(['POST'])
+@decorators.api_view(["POST"])
 def mcp_ai_chat(request):
-    """
-    Intelligent RAG & Telemetry AI Chat console checking for live models.
-    Safely flattens nested arrays from ChromaDB to prevent TypeErrors.
-    """
-    user_message = request.data.get('message', '').strip()
-    if not user_message:
-        return response.Response({'detail': 'Message payload cannot be empty.'}, status=400)
+    import logging
+    import ollama
 
+    logger = logging.getLogger(__name__)
+
+    user_message = (request.data.get("message") or "").strip()
+    if not user_message:
+        return response.Response(
+            {"detail": "Message payload cannot be empty."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Read Ollama settings.
     ollama_host = "http://localhost:11434"
     target_model = "qwen2.5-coder:7b"
-    
+
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT key, value FROM mcp_systemsetting WHERE key IN ('ollama_host', 'ollama_model');")
+            cursor.execute(
+                "SELECT key, value FROM mcp_systemsetting "
+                "WHERE key IN ('ollama_host', 'ollama_model');"
+            )
             settings_dict = dict(cursor.fetchall())
-            if 'ollama_host' in settings_dict:
-                ollama_host = settings_dict['ollama_host']
-            if 'ollama_model' in settings_dict:
-                target_model = settings_dict['ollama_model']
+
+        ollama_host = settings_dict.get("ollama_host", ollama_host)
+        target_model = settings_dict.get("ollama_model", target_model)
     except Exception:
-        pass
+        logger.exception("Could not load Ollama settings")
 
+    # Create the Langfuse v2 trace.
+    trace_obj = None
+    rag_span = None
+    generation = None
+
+    try:
+        trace_obj = langfuse_client.trace(
+            name="ai_diagnostics_console_lookup",
+            input={"message": user_message},
+        )
+    except Exception:
+        logger.exception("Langfuse trace creation failed")
+
+    # Retrieve knowledge from ChromaDB.
     context_documents = []
-    if chroma_collection:
-        try:
-            search_results = chroma_collection.query(query_texts=[user_message], n_results=2)
-            # 🌟 FIX: Safely pull out and flatten the inner array of strings from ChromaDB's nesting
-            raw_documents = search_results.get('documents', [])
-            if raw_documents and isinstance(raw_documents[0], list):
-                context_documents = raw_documents[0]  # Extracts the array of real string documents
-            elif raw_documents:
-                context_documents = raw_documents
-        except Exception as e:
-            print(f"⚠️ ChromaDB skip: {e}")
 
-    system_telemetry_snapshot = ""
+    if trace_obj is not None:
+        try:
+            rag_span = trace_obj.span(
+                name="chromadb_knowledge_retrieval",
+                input={"query": user_message},
+            )
+        except Exception:
+            logger.exception("Could not create retrieval span")
+
+    try:
+        if chroma_collection is not None:
+            results = chroma_collection.query(
+                query_texts=[user_message],
+                n_results=2,
+            )
+
+            documents = results.get("documents") or []
+
+            for group in documents:
+                if isinstance(group, list):
+                    context_documents.extend(
+                        doc for doc in group
+                        if isinstance(doc, str)
+                    )
+                elif isinstance(group, str):
+                    context_documents.append(group)
+
+        if rag_span is not None:
+            rag_span.end(
+                output={"retrieved_runbooks": context_documents}
+            )
+
+    except Exception as exc:
+        logger.exception("ChromaDB retrieval failed")
+
+        if rag_span is not None:
+            try:
+                rag_span.end(
+                    output={"error": str(exc)},
+                    level="ERROR",
+                    status_message=str(exc),
+                )
+            except Exception:
+                logger.exception("Could not close retrieval span")
+
+    # Collect current container telemetry.
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT DISTINCT ON (container_name) container_name, status FROM docker_metrics ORDER BY container_name, id DESC;")
-            system_telemetry_snapshot += "Live Containers Status:\n" + "\n".join([f"- {c[0]}: {c[1]}" for c in cursor.fetchall()]) + "\n"
+            cursor.execute(
+                "SELECT DISTINCT ON (container_name) "
+                "container_name, status "
+                "FROM docker_metrics "
+                "ORDER BY container_name, id DESC;"
+            )
+            rows = cursor.fetchall()
 
-            cursor.execute("SELECT DISTINCT ON (metric_name) metric_name, value FROM prometheus_alerts ORDER BY metric_name, id DESC LIMIT 5;")
-            system_telemetry_snapshot += "\nLive System Metrics:\n" + "\n".join([f"- {m[0]}: {m[1]}" for m in cursor.fetchall()])
+        telemetry = "Live Containers Fleet Status:\n"
+        telemetry += "\n".join(
+            f"- {name}: {container_status}"
+            for name, container_status in rows
+        )
+
     except Exception:
-        system_telemetry_snapshot = "Telemetry snapshot temporarily unavailable."
+        logger.exception("Telemetry query failed")
+        telemetry = "Telemetry tracking stream offline."
 
-    # 🌟 SAFE JOIN: Because context_documents is now guaranteed to be a flat list of strings
-    rag_context = "\n".join(context_documents) if context_documents else "No explicit runbooks found for this issue."
-    
+    rag_context = (
+        "\n".join(context_documents)
+        if context_documents
+        else "No explicit runbooks found for this issue."
+    )
+
     system_prompt = f"""
-You are OpsHub AI, an elite Agentic DevOps Engineering Copilot analyzing infrastructure failures.
-[LIVE INFRASTRUCTURE TELEMETRY SNAPSHOT]
-{system_telemetry_snapshot}
-[RETRIEVED KNOWLEDGE BASE RUNBOOKS (RAG)]
+You are an infrastructure diagnostics assistant.
+
+[LIVE INFRASTRUCTURE TELEMETRY]
+{telemetry}
+
+[KNOWLEDGE BASE RUNBOOKS]
 {rag_context}
-1. Use the snapshot and runbooks to diagnose the user's issue.
-2. Provide short, punchy, actionable solutions. Do not hallucinate data.
+
+Return only valid JSON with these keys:
+- incident_detected: boolean
+- error_scope: string
+- diagnostic_report: string
+
+Identify containers whose status is not 'running'.
+Do not include greetings or text outside the JSON object.
 """
 
+    fallback_json = (
+        '{"incident_detected":false,'
+        '"error_scope":"Offline Core Node",'
+        '"diagnostic_report":"Unable to communicate with Ollama."}'
+    )
+
+    reply_text = fallback_json
+
     try:
+        # Create the generation observation using the v2 API.
+        if trace_obj is not None:
+            generation = trace_obj.generation(
+                name="ollama_inference_generation",
+                model=target_model,
+                input={"message": user_message},
+            )
+
         client = ollama.Client(host=ollama_host)
-        
-        # Safe checkpoint to inform the frontend if your specific laptop model weight isn't loaded
-        try:
-            local_models = client.list().get('models', [])
-            model_names = [m.get('model') for m in local_models]
-            if target_model not in model_names and f"{target_model}:latest" not in model_names:
-                return response.Response({
-                    'reply': f"🤖 **System Status:** Connected to Ollama node at `{ollama_host}`, but model weights for `{target_model}` are missing. Please pull it on your laptop using `ollama pull {target_model}` to activate full execution.",
-                    'sources': context_documents
-                }, status=200)
-        except Exception:
-            pass
 
-        ollama_response = client.chat(
-            model=target_model, 
+        result = client.chat(
+            model=target_model,
+            format="json",
             messages=[
-                {'role': 'system', 'content': system_prompt},
-                {'role': 'user', 'content': user_message}
-            ]
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
         )
-        return response.Response({'reply': ollama_response['message']['content'], 'sources': context_documents}, status=200)
-    except Exception as e:
-        return response.Response({
-            'reply': f"🤖 OpsHub AI Engine: Managed to parse telemetry structures, but the Ollama node at '{ollama_host}' is unreachable. Verify your laptop background server status. Diagnostic: {str(e)}", 
-            'sources': context_documents
-        }, status=200)
 
+        reply_text = result["message"]["content"]
+
+        if generation is not None:
+            generation.end(output=reply_text)
+
+        if trace_obj is not None:
+            trace_obj.update(
+                output={
+                    "status": "success",
+                    "reply": reply_text,
+                }
+            )
+
+    except Exception as exc:
+        logger.exception("Ollama inference failed")
+
+        if generation is not None:
+            try:
+                generation.end(
+                    output={"error": str(exc)},
+                    level="ERROR",
+                    status_message=str(exc),
+                )
+            except Exception:
+                logger.exception("Could not close generation")
+
+        if trace_obj is not None:
+            try:
+                trace_obj.update(
+                    output={"status": "failed", "error": str(exc)}
+                )
+            except Exception:
+                logger.exception("Could not update trace")
+
+    finally:
+        try:
+            langfuse_client.flush()
+        except Exception:
+            logger.exception("Langfuse flush failed")
+
+    return response.Response(
+        {"reply": reply_text},
+        status=status.HTTP_200_OK,
+    )
 
 @csrf_exempt
 @decorators.api_view(['POST'])
