@@ -6,20 +6,30 @@ import requests
 from django.utils import timezone
 from django.db import connection
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import decorators, response, status
-from langfuse import Langfuse
-from laya import LayaRouter, ChoiceField, BoolField
-import mcp
+from rest_framework import decorators, response, status, viewsets
+try:
+    from langfuse import Langfuse
+except ImportError:
+    Langfuse = None
+
+try:
+    from laya import LayaRouter, ChoiceField, BoolField
+except ImportError:
+    LayaRouter = ChoiceField = BoolField = None
+
+from .models import MCPTool, MCPToolVersion,MCPToolSerializer
+from apps.audit.models import AuditEvent
+
 
 logger = logging.getLogger(__name__)
 
 # Configure credentials through environment variables; do not hard-code API keys.
 langfuse_client = Langfuse(
-    secret_key="sk-lf-46363ae9-619d-4818-af9f-05a79a75cb04",
-    public_key="pk-lf-389113e5-db03-4ec0-9d42-dad8e0710afa",
-    host="http://127.0.0.1:3030",
-    debug=True,
-)
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    host=os.getenv("LANGFUSE_HOST", "http://127.0.0.1:3030"),
+    debug=os.getenv("LANGFUSE_DEBUG", "0") == "1",
+) if Langfuse and os.getenv("LANGFUSE_SECRET_KEY") and os.getenv("LANGFUSE_PUBLIC_KEY") else None
 # Safe fallback import for ChromaDB Vector Database
 try:
     from apps.knowledge.views import chroma_collection
@@ -27,7 +37,7 @@ except ImportError:
     chroma_collection = None
 
 
-class MCPToolViewSet(.ModelViewSet):
+class MCPToolViewSet(viewsets.ModelViewSet):
     serializer_class = MCPToolSerializer
     
     def get_queryset(self):
@@ -140,8 +150,8 @@ def mcp_ai_chat(request):
         return response.Response({"detail": "Message payload cannot be empty."}, status=400)
 
     # Fetch active host setting configurations dynamically from the database
-    ollama_host = "http://localhost:11434"
-    target_model = "qwen2.5-coder:7b"
+    ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    target_model = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT key, value FROM mcp_systemsetting WHERE key IN ('ollama_host', 'ollama_model');")
@@ -152,7 +162,7 @@ def mcp_ai_chat(request):
         pass
 
     # 🚀 START PARENT TRACE: Register this active diagnostic run inside Langfuse
-    trace_obj = langfuse_client.trace(name="hierarchical_diagnostic_routing", input={"incident_raw": user_message})
+    trace_obj = langfuse_client.trace(name="hierarchical_diagnostic_routing", input={"incident_raw": user_message}) if langfuse_client else None
     
     # ===================================================================
     # 🗜️ STEP 2: BUILD COMPRESSED INCIDENT CONTEXT
@@ -184,7 +194,7 @@ def mcp_ai_chat(request):
 
 
 
-    router_span = trace_obj.span(name="laya_native_diagnostic_router", input=compressed_incident_context)
+    router_span = trace_obj.span(name="laya_native_diagnostic_router", input=compressed_incident_context) if trace_obj else None
     
     try:
         # مقداردهی اولیه روتور لایا و متصل کردن آن به هاست اولامای لپ‌تاپ شما
@@ -207,7 +217,8 @@ def mcp_ai_chat(request):
         )
         
         # ثبت دیتای واقعی لایا در سیستم تلمتری لنگ‌فیوز
-        router_span.end(output=laya_decisions)
+        if router_span:
+            router_span.end(output=laya_decisions)
         
     except Exception as exc:
         logger.exception("اتصال مستقیم به لایبرری لایا با خطا مواجه شد؛ اعمال لایه خطایاب سیستم")
@@ -216,7 +227,8 @@ def mcp_ai_chat(request):
             "incident_family": "unknown", "need_ci_logs": True, "need_metric_window": True,
             "need_container_events": True, "need_deployment_changes": False, "need_runbook_search": True
         }
-        router_span.end(output={"error": str(exc), "fallback_applied": laya_decisions}, level="ERROR")
+        if router_span:
+            router_span.end(output={"error": str(exc), "fallback_applied": laya_decisions}, level="ERROR")
 
     # ===================================================================
     # 🛠️ STEP 4: TARGETED MCP EVIDENCE GATHERING (THE MUSCLE)
@@ -224,7 +236,7 @@ def mcp_ai_chat(request):
     # Technique: The Django orchestrator inspects Laya's decisions array. 
     # We ONLY invoke the specific read-only tools needed. Unnecessary logs are skipped.
     mcp_evidence_payload = {}
-    mcp_span = trace_obj.span(name="targeted_mcp_evidence_gathering", input=laya_decisions)
+    mcp_span = trace_obj.span(name="targeted_mcp_evidence_gathering", input=laya_decisions) if trace_obj else None
     
     try:
         with connection.cursor() as cursor:
@@ -241,9 +253,11 @@ def mcp_ai_chat(request):
             if laya_decisions.get("need_ci_logs"):
                 mcp_evidence_payload["ci_pipeline_logs"] = "Failure intercepted at phase: Docker Image Build Push. Exit Code 1."
 
-        mcp_span.end(output=mcp_evidence_payload)  # Log gathered data array directly into Langfuse
+        if mcp_span:
+            mcp_span.end(output=mcp_evidence_payload)  # Log gathered data array directly into Langfuse
     except Exception as e:
-        mcp_span.end(output={"error": str(e)}, level="ERROR")
+        if mcp_span:
+            mcp_span.end(output={"error": str(e)}, level="ERROR")
 
     # ===================================================================
     # 🗄️ STEP 5: TARGETED CHROMADB VECTOR RETRIEVAL (RAG FOCUS)
@@ -272,7 +286,7 @@ def mcp_ai_chat(request):
         name="ollama_final_generative_reactor",
         model=target_model,
         input={"evidence": mcp_evidence_payload, "runbooks": context_documents}
-    )
+    ) if trace_obj else None
 
     rag_context = "\n".join(context_documents) if context_documents else "No explicit runbooks found."
     
@@ -308,10 +322,12 @@ def mcp_ai_chat(request):
         )
         reply_text = result["message"]["content"]
 # Close all active spans inside your Langfuse tracking project space successfully
-        generation.end(output=reply_text)
+        if generation:
+            generation.end(output=reply_text)
         trace_obj.update(output={"status": "success", "reply": reply_text})
     except Exception as exc:
-        generation.end(output=str(exc), level="ERROR")
+        if generation:
+            generation.end(output=str(exc), level="ERROR")
         trace_obj.update(output={"status": "failed", "error": str(exc)})
     finally:
 # Hard flush step to ensure memory records transmit immediately to the Docker container
