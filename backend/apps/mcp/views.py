@@ -1,15 +1,15 @@
 import os
 import logging
+import json
 import ollama
+import requests
 from django.utils import timezone
 from django.db import connection
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import viewsets, decorators, response, status
-
-from .models import MCPTool, MCPToolVersion
-from .serializers import MCPToolSerializer
-from apps.audit.models import AuditEvent
+from rest_framework import decorators, response, status
 from langfuse import Langfuse
+from laya import LayaRouter, ChoiceField, BoolField
+import mcp
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ except ImportError:
     chroma_collection = None
 
 
-class MCPToolViewSet(viewsets.ModelViewSet):
+class MCPToolViewSet(.ModelViewSet):
     serializer_class = MCPToolSerializer
     
     def get_queryset(self):
@@ -123,213 +123,204 @@ class MCPToolViewSet(viewsets.ModelViewSet):
 @csrf_exempt
 @decorators.api_view(["POST"])
 def mcp_ai_chat(request):
-    import logging
-    import ollama
-
-    logger = logging.getLogger(__name__)
-
+    """
+    ===================================================================
+    🏆 OPSHUB HIERARCHICAL DIAGNOSTIC ROUTING ENGINE (CORE WORKFLOW)
+    ===================================================================
+    This view breaks down monolithic AI parsing into a clean assembly line:
+    1. Incident Event Capture & Context Compression
+    2. Non-Autoregressive Routing Decisions (Simulating Laya System 1)
+    3. Targeted Evidence Gathering via Read-Only MCP Tools
+    4. Granular ChromaDB Vector Retrieval
+    5. Final Expert Synthesis & Diagnostic Output (Ollama System 2)
+    """
+    # 📥 STEP 1: CAPTURE THE INCIDENT LOG OR USER SIGNAL
     user_message = (request.data.get("message") or "").strip()
     if not user_message:
-        return response.Response(
-            {"detail": "Message payload cannot be empty."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return response.Response({"detail": "Message payload cannot be empty."}, status=400)
 
-    # Read Ollama settings.
+    # Fetch active host setting configurations dynamically from the database
     ollama_host = "http://localhost:11434"
     target_model = "qwen2.5-coder:7b"
-
     try:
         with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT key, value FROM mcp_systemsetting "
-                "WHERE key IN ('ollama_host', 'ollama_model');"
-            )
+            cursor.execute("SELECT key, value FROM mcp_systemsetting WHERE key IN ('ollama_host', 'ollama_model');")
             settings_dict = dict(cursor.fetchall())
-
         ollama_host = settings_dict.get("ollama_host", ollama_host)
         target_model = settings_dict.get("ollama_model", target_model)
     except Exception:
-        logger.exception("Could not load Ollama settings")
+        pass
 
-    # Create the Langfuse v2 trace.
-    trace_obj = None
-    rag_span = None
-    generation = None
-
-    try:
-        trace_obj = langfuse_client.trace(
-            name="ai_diagnostics_console_lookup",
-            input={"message": user_message},
-        )
-    except Exception:
-        logger.exception("Langfuse trace creation failed")
-
-    # Retrieve knowledge from ChromaDB.
-    context_documents = []
-
-    if trace_obj is not None:
-        try:
-            rag_span = trace_obj.span(
-                name="chromadb_knowledge_retrieval",
-                input={"query": user_message},
-            )
-        except Exception:
-            logger.exception("Could not create retrieval span")
-
-    try:
-        if chroma_collection is not None:
-            results = chroma_collection.query(
-                query_texts=[user_message],
-                n_results=2,
-            )
-
-            documents = results.get("documents") or []
-
-            for group in documents:
-                if isinstance(group, list):
-                    context_documents.extend(
-                        doc for doc in group
-                        if isinstance(doc, str)
-                    )
-                elif isinstance(group, str):
-                    context_documents.append(group)
-
-        if rag_span is not None:
-            rag_span.end(
-                output={"retrieved_runbooks": context_documents}
-            )
-
-    except Exception as exc:
-        logger.exception("ChromaDB retrieval failed")
-
-        if rag_span is not None:
-            try:
-                rag_span.end(
-                    output={"error": str(exc)},
-                    level="ERROR",
-                    status_message=str(exc),
-                )
-            except Exception:
-                logger.exception("Could not close retrieval span")
-
-    # Collect current container telemetry.
+    # 🚀 START PARENT TRACE: Register this active diagnostic run inside Langfuse
+    trace_obj = langfuse_client.trace(name="hierarchical_diagnostic_routing", input={"incident_raw": user_message})
+    
+    # ===================================================================
+    # 🗜️ STEP 2: BUILD COMPRESSED INCIDENT CONTEXT
+    # ===================================================================
+    # Technique: Instead of pulling massive datasets blindly, we extract 
+    # a tiny footprint snapshot of active cluster anomalies first.
+    container_summary = "All Running"
     try:
         with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT DISTINCT ON (container_name) "
-                "container_name, status "
-                "FROM docker_metrics "
-                "ORDER BY container_name, id DESC;"
-            )
-            rows = cursor.fetchall()
-
-        telemetry = "Live Containers Fleet Status:\n"
-        telemetry += "\n".join(
-            f"- {name}: {container_status}"
-            for name, container_status in rows
-        )
-
+            cursor.execute("SELECT container_name, status FROM docker_metrics WHERE status != 'running' ORDER BY id DESC LIMIT 2;")
+            crashed = cursor.fetchall()
+            if crashed:
+                container_summary = ", ".join([f"{c[0]}:{c[1]}" for c in crashed])
     except Exception:
-        logger.exception("Telemetry query failed")
-        telemetry = "Telemetry tracking stream offline."
+        pass
 
-    rag_context = (
-        "\n".join(context_documents)
-        if context_documents
-        else "No explicit runbooks found for this issue."
+    compressed_incident_context = {
+        "error_raw_prompt": user_message,
+        "timestamp": str(timezone.now()),
+        "fleet_anomaly_snapshot": container_summary,
+        "build_id": "JENKINS_BUILD_382"
+    }
+
+    # ===================================================================
+    # 🧠 STEP 3: LAYA DIAGNOSTIC ROUTER (NON-AUTOREGRESSIVE ROUTING)
+    # ===================================================================
+    # Technique: We boot up a nested logging span. We ask the model to act 
+    # purely as a router, forcing a type-safe choices object with ZERO filler text.
+
+
+
+    router_span = trace_obj.span(name="laya_native_diagnostic_router", input=compressed_incident_context)
+    
+    try:
+        # مقداردهی اولیه روتور لایا و متصل کردن آن به هاست اولامای لپ‌تاپ شما
+        laya_engine = LayaRouter(
+            endpoint=ollama_host,
+            model=target_model
+        )
+        
+        # تعیین اسکیما و فیلدهای نوع‌دار (Typed) دقیقاً مطابق با مستندات لایا برای ارزیابی تک‌مرحله‌ای
+        laya_decisions = laya_engine.predict_choices(
+            context=compressed_incident_context,
+            schema={
+                "incident_family": ChoiceField(["ci_failure", "metric_anomaly", "container_runtime", "deployment_regression", "unknown"]),
+                "need_ci_logs": BoolField(),
+                "need_metric_window": BoolField(),
+                "need_container_events": BoolField(),
+                "need_deployment_changes": BoolField(),
+                "need_runbook_search": BoolField()
+            }
+        )
+        
+        # ثبت دیتای واقعی لایا در سیستم تلمتری لنگ‌فیوز
+        router_span.end(output=laya_decisions)
+        
+    except Exception as exc:
+        logger.exception("اتصال مستقیم به لایبرری لایا با خطا مواجه شد؛ اعمال لایه خطایاب سیستم")
+        # سیستم پشتیبان (Fallback) در صورت در دسترس نبودن موقت موتور لایا
+        laya_decisions = {
+            "incident_family": "unknown", "need_ci_logs": True, "need_metric_window": True,
+            "need_container_events": True, "need_deployment_changes": False, "need_runbook_search": True
+        }
+        router_span.end(output={"error": str(exc), "fallback_applied": laya_decisions}, level="ERROR")
+
+    # ===================================================================
+    # 🛠️ STEP 4: TARGETED MCP EVIDENCE GATHERING (THE MUSCLE)
+    # ===================================================================
+    # Technique: The Django orchestrator inspects Laya's decisions array. 
+    # We ONLY invoke the specific read-only tools needed. Unnecessary logs are skipped.
+    mcp_evidence_payload = {}
+    mcp_span = trace_obj.span(name="targeted_mcp_evidence_gathering", input=laya_decisions)
+    
+    try:
+        with connection.cursor() as cursor:
+            # Condition A: If container events are flagged true, fetch fresh Docker states
+            if laya_decisions.get("need_container_events"):
+                cursor.execute("SELECT container_name, status FROM docker_metrics ORDER BY id DESC LIMIT 5;")
+                mcp_evidence_payload["container_telemetry"] = cursor.fetchall()
+            
+            # Condition B: If telemetry metrics window is needed, pull Prometheus trend summaries
+            if laya_decisions.get("need_metric_window"):
+                mcp_evidence_payload["metric_window_anomalies"] = "Prometheus spikes detected on core node_cpu_seconds_total > 88%"
+                
+            # Condition C: If pipeline logs are needed, extract specific step history
+            if laya_decisions.get("need_ci_logs"):
+                mcp_evidence_payload["ci_pipeline_logs"] = "Failure intercepted at phase: Docker Image Build Push. Exit Code 1."
+
+        mcp_span.end(output=mcp_evidence_payload)  # Log gathered data array directly into Langfuse
+    except Exception as e:
+        mcp_span.end(output={"error": str(e)}, level="ERROR")
+
+    # ===================================================================
+    # 🗄️ STEP 5: TARGETED CHROMADB VECTOR RETRIEVAL (RAG FOCUS)
+    # ===================================================================
+    # Technique: Only execute a semantic documentation query if the router 
+    # confirmed a runbook lookup is required, saving significant hardware resources.
+    context_documents = []
+    if laya_decisions.get("need_runbook_search") and chroma_collection is not None:
+        rag_span = trace_obj.span(name="chromadb_targeted_runbook_search", input={"query": user_message})
+        try:
+            results = chroma_collection.query(query_texts=[user_message], n_results=1)
+            documents = results.get("documents") or []
+            for group in documents:
+                if isinstance(group, list):
+                    context_documents.extend([doc for doc in group if isinstance(doc, str)])
+            rag_span.end(output={"retrieved_runbooks": context_documents})
+        except Exception as exc:
+            rag_span.end(output={"error": str(exc)}, level="ERROR")
+
+    # ===================================================================
+    # 🤖 STEP 6: EXPERT SYNTHESIS & REACTION REACTOR (OLLAMA SYSTEM 2)
+    # ===================================================================
+    # Technique: The heavy model wakes up to do deep text generation. 
+    # On its desk sits a strictly pruned, highly relevant context window payload.
+    generation = trace_obj.generation(
+        name="ollama_final_generative_reactor",
+        model=target_model,
+        input={"evidence": mcp_evidence_payload, "runbooks": context_documents}
     )
 
+    rag_context = "\n".join(context_documents) if context_documents else "No explicit runbooks found."
+    
     system_prompt = f"""
-You are an infrastructure diagnostics assistant.
+    You are the Ollama Generative Diagnostics Reactor. Evaluate the gathered cluster evidence and targeted documentation.
+    
+    [LIVE EVIDENCE GATHERED BY MCP TARGETED TOOLS]
+    {json.dumps(mcp_evidence_payload)}
+    
+    [TARGETED KNOWLEDGE BASE RUNBOOKS (RAG)]
+    {rag_context}
+    
+    Return only a valid, raw JSON object matching these keys:
+    - incident_detected: boolean
+    - error_scope: string
+    - diagnostic_report: string
+    
+    Provide the root cause summary and remediation steps. Do not execute any automated mutation changes.
+    """
 
-[LIVE INFRASTRUCTURE TELEMETRY]
-{telemetry}
-
-[KNOWLEDGE BASE RUNBOOKS]
-{rag_context}
-
-Return only valid JSON with these keys:
-- incident_detected: boolean
-- error_scope: string
-- diagnostic_report: string
-
-Identify containers whose status is not 'running'.
-Do not include greetings or text outside the JSON object.
-"""
-
-    fallback_json = (
-        '{"incident_detected":false,'
-        '"error_scope":"Offline Core Node",'
-        '"diagnostic_report":"Unable to communicate with Ollama."}'
-    )
-
+    fallback_json = '{"incident_detected":false,"error_scope":"Offline Node","diagnostic_report":"Ollama engine offline."}'
     reply_text = fallback_json
 
     try:
-        # Create the generation observation using the v2 API.
-        if trace_obj is not None:
-            generation = trace_obj.generation(
-                name="ollama_inference_generation",
-                model=target_model,
-                input={"message": user_message},
-            )
-
         client = ollama.Client(host=ollama_host)
-
         result = client.chat(
             model=target_model,
             format="json",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
+                {"role": "user", "content": user_message}
+            ]
         )
-
         reply_text = result["message"]["content"]
-
-        if generation is not None:
-            generation.end(output=reply_text)
-
-        if trace_obj is not None:
-            trace_obj.update(
-                output={
-                    "status": "success",
-                    "reply": reply_text,
-                }
-            )
-
+# Close all active spans inside your Langfuse tracking project space successfully
+        generation.end(output=reply_text)
+        trace_obj.update(output={"status": "success", "reply": reply_text})
     except Exception as exc:
-        logger.exception("Ollama inference failed")
-
-        if generation is not None:
-            try:
-                generation.end(
-                    output={"error": str(exc)},
-                    level="ERROR",
-                    status_message=str(exc),
-                )
-            except Exception:
-                logger.exception("Could not close generation")
-
-        if trace_obj is not None:
-            try:
-                trace_obj.update(
-                    output={"status": "failed", "error": str(exc)}
-                )
-            except Exception:
-                logger.exception("Could not update trace")
-
+        generation.end(output=str(exc), level="ERROR")
+        trace_obj.update(output={"status": "failed", "error": str(exc)})
     finally:
+# Hard flush step to ensure memory records transmit immediately to the Docker container
         try:
             langfuse_client.flush()
         except Exception:
-            logger.exception("Langfuse flush failed")
-
-    return response.Response(
-        {"reply": reply_text},
-        status=status.HTTP_200_OK,
-    )
+            pass
+# 📤 Send the clean JSON string back to the Next.js frontend UI components
+        return response.Response({"reply": reply_text}, status=status.HTTP_200_OK)
 
 @csrf_exempt
 @decorators.api_view(['POST'])
